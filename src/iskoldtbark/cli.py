@@ -45,7 +45,9 @@ def init_command(args):
     print("  1. Algorithm : AES256")
     print("  2. Mode      : GCM")
     print(f"  3. Key       : {encryption_key}")
-    print("  4. Iv        : (Leave this BLANK! We use dynamic IVs for max security)")
+    print(
+        "  4. Iv        : 000000000000 (Enter any 12 characters to bypass UI, we override it dynamically)"
+    )
     print("=" * 60)
     print("\nAfter saving on your phone, test it immediately by running:")
     print(
@@ -56,19 +58,12 @@ def init_command(args):
 def send_command(args):
     """Handles the `iskoldtbark send` command."""
     try:
-        if args.encrypt:
-            # Load from standard config (env -> local -> global)
-            client = BarkClient.from_config()
-            # Override device key if provided
-            if args.device_key:
-                client.device_key = args.device_key
-        else:
-            if not args.device_key:
-                print(
-                    "❌ Device Key is required when not using loaded config. Provide --device-key."
-                )
-                sys.exit(1)
-            client = BarkClient(args.device_key)
+        # Always attempt to load from standard config (env -> local -> global)
+        client = BarkClient.from_config()
+
+        # Override device key if provided
+        if args.device_key:
+            client.device_key = args.device_key
 
         print("📡 Sending notification...")
         res = client.push(
@@ -104,9 +99,6 @@ def main():
     parser_send.add_argument("--badge", type=int, help="App badge number")
     parser_send.add_argument("--group", type=str, help="Notification group")
     parser_send.add_argument("--url", type=str, help="URL to open on tap")
-    parser_send.add_argument(
-        "--encrypt", action="store_true", help="Load secure config and encrypt the payload"
-    )
 
     args = parser.parse_args()
 

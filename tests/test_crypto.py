@@ -29,9 +29,8 @@ def test_encryption_aes_gcm():
 
     ciphertext, iv = CryptoProvider.encrypt(data, config)
 
-    # Verify IV is correct length (16 bytes, but we return the string representation of hex, wait, no,
-    # we return a 16-character alphanumeric string. So len(iv) should be 16)
-    assert len(iv) == 16
+    # Verify IV is correct length (12 bytes for GCM)
+    assert len(iv) == 12
     assert isinstance(iv, str)
 
     # Ciphertext should be base64
