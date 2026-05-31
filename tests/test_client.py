@@ -89,5 +89,5 @@ def test_push_api_error():
     )
 
     client = BarkClient("dummy_key")
-    with pytest.raises(BarkAPIError, match="Request failed"):
+    with pytest.raises(BarkAPIError, match="Bark API Error: device key not found"):
         client.push(body="test message")

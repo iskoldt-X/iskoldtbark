@@ -40,8 +40,9 @@ class BarkPayload:
                 "Invalid 'level'. Must be active, timeSensitive, passive, or critical."
             )
 
-        if self.volume is not None and not (0 <= self.volume <= 10):
-            raise BarkValidationError("Volume must be an integer between 0 and 10.")
+        if self.volume is not None:
+            if not isinstance(self.volume, int) or not (0 <= self.volume <= 10):
+                raise BarkValidationError("Volume must be an integer between 0 and 10.")
 
         if self.call and self.call != "1":
             raise BarkValidationError("call must be '1' if provided.")

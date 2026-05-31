@@ -86,13 +86,27 @@ class BarkClient:
 
         try:
             response = self.session.post(f"{self.server_url}/push", json=request_data, timeout=30)
-            response.raise_for_status()
-            data = response.json()
+            
+            try:
+                data = response.json()
+            except ValueError:
+                data = {}
 
-            if data.get("code") != 200:
+            if "code" in data and data["code"] != 200:
                 raise BarkAPIError(f"Bark API Error: {data.get('message', 'Unknown error')}")
 
+            response.raise_for_status()
             return data
 
         except requests.exceptions.RequestException as e:
             raise BarkAPIError(f"Request failed: {e}")
+
+    def close(self) -> None:
+        """Close the underlying requests session."""
+        self.session.close()
+
+    def __enter__(self) -> "BarkClient":
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+        self.close()
