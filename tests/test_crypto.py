@@ -1,4 +1,5 @@
 import base64
+import os
 
 import pytest
 
@@ -22,9 +23,8 @@ def test_encryption_config_validation():
 
 
 def test_encryption_aes_gcm():
-    config = EncryptionConfig(
-        key=b"12345678901234567890123456789012", algorithm=CryptoAlgorithm.AES_256_GCM
-    )
+    key = os.urandom(32)
+    config = EncryptionConfig(key=key, algorithm=CryptoAlgorithm.AES_256_GCM)
     data = '{"body": "secret message"}'
 
     ciphertext, iv = CryptoProvider.encrypt(data, config)
@@ -42,7 +42,8 @@ def test_encryption_aes_gcm():
 
 
 def test_encryption_aes_cbc():
-    config = EncryptionConfig(key=b"1234567890123456", algorithm=CryptoAlgorithm.AES_128_CBC)
+    key = os.urandom(16)
+    config = EncryptionConfig(key=key, algorithm=CryptoAlgorithm.AES_128_CBC)
     data = '{"body": "secret message"}'
 
     ciphertext, iv = CryptoProvider.encrypt(data, config)
