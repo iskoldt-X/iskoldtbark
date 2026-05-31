@@ -27,17 +27,17 @@ class EncryptionConfig:
     def __post_init__(self):
         # Validate key lengths
         if self.algorithm == CryptoAlgorithm.AES_128_CBC and len(self.key) != 16:
-            raise BarkCryptoError("AES_128_CBC requires a 16-byte key")
+            raise BarkCryptoError(f"AES_128_CBC requires a 16-byte key (got {len(self.key)} bytes)")
         elif self.algorithm == CryptoAlgorithm.AES_192_CBC and len(self.key) != 24:
-            raise BarkCryptoError("AES_192_CBC requires a 24-byte key")
+            raise BarkCryptoError(f"AES_192_CBC requires a 24-byte key (got {len(self.key)} bytes)")
         elif (
             self.algorithm in [CryptoAlgorithm.AES_256_CBC, CryptoAlgorithm.AES_256_GCM]
             and len(self.key) != 32
         ):
-            raise BarkCryptoError(f"{self.algorithm.value} requires a 32-byte key")
+            raise BarkCryptoError(f"{self.algorithm.value} requires a 32-byte key (got {len(self.key)} bytes)")
 
         if self.iv is not None and len(self.iv) != 16:
-            raise BarkCryptoError("Static IV must be exactly 16 bytes")
+            raise BarkCryptoError(f"Static IV must be exactly 16 bytes (got {len(self.iv)} bytes)")
 
 
 def _generate_iv(algorithm: CryptoAlgorithm) -> bytes:

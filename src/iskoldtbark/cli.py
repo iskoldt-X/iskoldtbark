@@ -1,5 +1,6 @@
 import argparse
 import random
+import secrets
 import string
 import sys
 
@@ -17,9 +18,8 @@ ALGO_KEY_LENGTHS = {
 
 
 def generate_random_string(length: int) -> str:
-    """Generate a cryptographically secure random string."""
-    alphabet = string.ascii_letters + string.digits
-    return "".join(random.SystemRandom().choice(alphabet) for _ in range(length))
+    """Generate a cryptographically secure random string with full entropy."""
+    return secrets.token_hex((length + 1) // 2)[:length]
 
 
 def _mask(secret: str, keep: int = 4) -> str:

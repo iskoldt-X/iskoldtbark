@@ -17,6 +17,7 @@ class BarkClient:
         device_key: str,
         server_url: str = "https://api.day.app",
         encryption: Optional[EncryptionConfig] = None,
+        session: Optional[requests.Session] = None,
     ):
         """
         Initialize the Bark client.
@@ -30,7 +31,8 @@ class BarkClient:
         self.device_key = device_key
         self.server_url = server_url.rstrip("/")
         self.encryption_config: Optional[EncryptionConfig] = encryption
-        self.session = requests.Session()
+        self.session = session or requests.Session()
+        self._owns_session = session is None
 
     @classmethod
     def from_config(cls) -> "BarkClient":
@@ -165,13 +167,14 @@ class BarkClient:
         return self._get("/healthz").text.strip()
 
     def close(self) -> None:
-        """Close the underlying requests session."""
-        self.session.close()
+        """Close the underlying requests session if owned by this client."""
+        if self._owns_session:
+            self.session.close()
 
     def __enter__(self) -> "BarkClient":
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
         self.close()
 
 

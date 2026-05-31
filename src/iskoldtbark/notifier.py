@@ -1,3 +1,4 @@
+import concurrent.futures
 from dataclasses import dataclass, field
 from typing import Any, Dict
 
@@ -69,22 +70,29 @@ class UserNotifier:
         results: Dict[str, Dict[str, Any]] = {}
         success_count = 0
 
-        for nickname in group.members:
+        def _send_to_member(nickname: str, session: requests.Session) -> tuple:
             try:
                 user = self.config.get_user(nickname)
             except BarkConfigError as exc:
-                results[nickname] = {"ok": False, "response": None, "error": str(exc)}
-                continue
+                return nickname, {"ok": False, "response": None, "error": str(exc)}
 
-            client = user.to_client()
+            client = user.to_client(session=session)
             try:
                 response = client.push(body=body, **kwargs)
-                results[nickname] = {"ok": True, "response": response, "error": None}
-                success_count += 1
+                return nickname, {"ok": True, "response": response, "error": None}
             except _SEND_ERRORS as exc:
-                results[nickname] = {"ok": False, "response": None, "error": str(exc)}
+                return nickname, {"ok": False, "response": None, "error": str(exc)}
             finally:
                 client.close()
+
+        with requests.Session() as session:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+                futures = [executor.submit(_send_to_member, nick, session) for nick in group.members]
+                for future in concurrent.futures.as_completed(futures):
+                    nickname, outcome = future.result()
+                    results[nickname] = outcome
+                    if outcome["ok"]:
+                        success_count += 1
 
         return BarkSendResult(
             group_name=group_name,

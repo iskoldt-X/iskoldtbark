@@ -1,5 +1,5 @@
 import json
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
 from typing import Any, Dict, List, Optional
 
 from .exceptions import BarkValidationError

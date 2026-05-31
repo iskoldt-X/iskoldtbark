@@ -60,12 +60,12 @@ class UserConfig:
     server_url: str = DEFAULT_SERVER_URL
     encryption: Optional[EncryptionConfig] = None
 
-    def to_client(self):
+    def to_client(self, session: Optional[Any] = None):
         """Build a single-recipient BarkClient configured for this user."""
         # Imported lazily to avoid a config <-> client import cycle.
         from .client import BarkClient
 
-        return BarkClient(self.device_key, self.server_url, encryption=self.encryption)
+        return BarkClient(self.device_key, self.server_url, encryption=self.encryption, session=session)
 
     def to_dict(self) -> Dict[str, Any]:
         data: Dict[str, Any] = {
@@ -405,7 +405,8 @@ class ConfigManager:
 
         tmp_path = cls.GLOBAL_CONFIG_FILE.parent / (cls.GLOBAL_CONFIG_FILE.name + ".tmp")
         try:
-            with open(tmp_path, "w") as f:
+            fd = os.open(tmp_path, os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o600)
+            with os.fdopen(fd, "w") as f:
                 json.dump(config.to_dict(), f, indent=4)
             os.replace(tmp_path, cls.GLOBAL_CONFIG_FILE)
         except Exception as exc:
@@ -415,10 +416,6 @@ class ConfigManager:
                 except OSError:
                     pass
             raise BarkConfigError(f"Failed to save config: {exc}")
-        try:
-            os.chmod(cls.GLOBAL_CONFIG_FILE, 0o600)
-        except OSError:
-            pass
 
     @classmethod
     def is_legacy_on_disk(cls) -> bool:
