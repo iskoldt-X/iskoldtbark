@@ -1,3 +1,4 @@
+import json
 import os
 
 import pytest
@@ -68,7 +69,6 @@ def test_push_encrypted():
     client.push(body="secret message")
 
     request = responses.calls[0].request
-    import json
 
     body = json.loads(request.body)
 

@@ -29,8 +29,8 @@ def test_encryption_aes_gcm():
 
     ciphertext, iv = CryptoProvider.encrypt(data, config)
 
-    # Verify IV is correct length (12 bytes for GCM)
-    assert len(iv) == 12
+    # Verify IV is correct length (Bark iOS expects 16 bytes for GCM)
+    assert len(iv) == 16
     assert isinstance(iv, str)
 
     # Ciphertext should be base64

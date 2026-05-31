@@ -65,8 +65,8 @@ class CryptoProvider:
             else:
                 # Generate correct length IV based on algorithm
                 if config.algorithm == CryptoAlgorithm.AES_256_GCM:
-                    # GCM requires 12-byte IV (96 bits). We generate 12 random alphanumeric chars.
-                    iv = os.urandom(6).hex().encode("utf-8")
+                    # Bark iOS expects a 16-character IV string even for GCM.
+                    iv = os.urandom(8).hex().encode("utf-8")
                 else:
                     # CBC requires 16-byte IV.
                     iv = os.urandom(8).hex().encode("utf-8")
