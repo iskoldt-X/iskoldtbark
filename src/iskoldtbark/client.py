@@ -2,6 +2,7 @@ from typing import Any, Dict, List, Optional, Union
 
 import requests
 
+from .config import ConfigManager
 from .crypto import CryptoProvider, EncryptionConfig
 from .exceptions import BarkAPIError
 from .models import BarkPayload
@@ -22,6 +23,17 @@ class BarkClient:
         self.server_url = server_url.rstrip("/")
         self.encryption_config: Optional[EncryptionConfig] = None
         self.session = requests.Session()
+
+    @classmethod
+    def from_config(cls) -> "BarkClient":
+        """
+        Creates a BarkClient automatically loaded from the 3-tier config.
+        """
+        config = ConfigManager.load()
+        client = cls(device_key=config.device_key, server_url=config.server_url)
+        if config.encryption_config:
+            client.set_encryption(config.encryption_config)
+        return client
 
     def set_encryption(self, config: EncryptionConfig) -> None:
         """
@@ -54,8 +66,16 @@ class BarkClient:
         payload_dict = payload.to_dict()
 
         if self.encryption_config:
-            # We encrypt the whole original JSON
-            json_str = payload.to_json()
+            # We encrypt the whole original JSON, but without the device_key
+            encrypt_payload = payload.to_dict()
+            if "device_key" in encrypt_payload:
+                del encrypt_payload["device_key"]
+            if "device_keys" in encrypt_payload:
+                del encrypt_payload["device_keys"]
+
+            import json
+
+            json_str = json.dumps(encrypt_payload, ensure_ascii=False)
             ciphertext, iv = CryptoProvider.encrypt(json_str, self.encryption_config)
 
             # The API V2 expects device_key, ciphertext, and iv

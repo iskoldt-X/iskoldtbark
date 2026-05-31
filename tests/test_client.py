@@ -1,3 +1,5 @@
+import os
+
 import pytest
 import responses
 
@@ -59,9 +61,8 @@ def test_push_encrypted():
     )
 
     client = BarkClient("dummy_key")
-    config = EncryptionConfig(
-        key=b"12345678901234567890123456789012", algorithm=CryptoAlgorithm.AES_256_GCM
-    )
+    key = os.urandom(32)
+    config = EncryptionConfig(key=key, algorithm=CryptoAlgorithm.AES_256_GCM)
     client.set_encryption(config)
 
     client.push(body="secret message")

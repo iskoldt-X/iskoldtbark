@@ -21,6 +21,7 @@ class CryptoAlgorithm(Enum):
 class EncryptionConfig:
     key: bytes
     algorithm: CryptoAlgorithm = CryptoAlgorithm.AES_256_GCM
+    iv: bytes = None  # Optional static IV. If None, a random one is generated.
 
     def __post_init__(self):
         # Validate key lengths
@@ -33,6 +34,9 @@ class EncryptionConfig:
             and len(self.key) != 32
         ):
             raise BarkCryptoError(f"{self.algorithm.value} requires a 32-byte key")
+
+        if self.iv is not None and len(self.iv) != 16:
+            raise BarkCryptoError("Static IV must be exactly 16 bytes")
 
 
 class CryptoProvider:
@@ -56,8 +60,11 @@ class CryptoProvider:
         Let's generate a 16-character alphanumeric IV.
         """
         try:
-            # Generate a 16-character alphanumeric string as IV
-            iv = os.urandom(12).hex()[:16].encode("utf-8")
+            if config.iv:
+                iv = config.iv
+            else:
+                # Generate a 16-character alphanumeric string as IV
+                iv = os.urandom(12).hex()[:16].encode("utf-8")
 
             if config.algorithm == CryptoAlgorithm.AES_256_GCM:
                 cipher = Cipher(
