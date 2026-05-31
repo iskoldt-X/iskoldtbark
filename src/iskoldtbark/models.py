@@ -12,6 +12,7 @@ class BarkPayload:
     body: str
     title: Optional[str] = None
     subtitle: Optional[str] = None
+    markdown: Optional[str] = None
     device_key: Optional[str] = None
     device_keys: Optional[List[str]] = None
     level: Optional[str] = None
@@ -22,11 +23,14 @@ class BarkPayload:
     copy: Optional[str] = None
     sound: Optional[str] = None
     icon: Optional[str] = None
+    image: Optional[str] = None
     group: Optional[str] = None
     isArchive: Optional[str] = None
     ttl: Optional[int] = None
     url: Optional[str] = None
     action: Optional[str] = None
+    id: Optional[str] = None
+    delete: Optional[str] = None
     ciphertext: Optional[str] = None
     iv: Optional[str] = None
 
@@ -52,6 +56,12 @@ class BarkPayload:
 
         if self.isArchive and self.isArchive != "1":
             raise BarkValidationError("isArchive must be '1' if provided.")
+
+        if self.delete and self.delete != "1":
+            raise BarkValidationError("delete must be '1' if provided.")
+
+        if self.delete and not self.id:
+            raise BarkValidationError("delete requires 'id' to identify the notification.")
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dict, dropping None values."""

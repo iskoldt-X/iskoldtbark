@@ -2,6 +2,7 @@ import base64
 import os
 from dataclasses import dataclass
 from enum import Enum
+from typing import Optional, Tuple
 
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import padding
@@ -21,7 +22,7 @@ class CryptoAlgorithm(Enum):
 class EncryptionConfig:
     key: bytes
     algorithm: CryptoAlgorithm = CryptoAlgorithm.AES_256_GCM
-    iv: bytes = None  # Optional static IV. If None, a random one is generated.
+    iv: Optional[bytes] = None  # Optional static IV. If None, a random one is generated.
 
     def __post_init__(self):
         # Validate key lengths
@@ -39,54 +40,41 @@ class EncryptionConfig:
             raise BarkCryptoError("Static IV must be exactly 16 bytes")
 
 
+def _generate_iv(algorithm: CryptoAlgorithm) -> bytes:
+    """Generate a random IV as the ASCII hex of random bytes.
+
+    The Bark iOS app reads the IV as a string of a fixed length: 12 characters for
+    GCM and 16 for CBC. We therefore hex-encode 6 / 8 random bytes respectively and
+    send that hex string (not the raw bytes).
+    """
+    if algorithm == CryptoAlgorithm.AES_256_GCM:
+        return os.urandom(6).hex().encode("utf-8")
+    return os.urandom(8).hex().encode("utf-8")
+
+
 class CryptoProvider:
     @staticmethod
-    def encrypt(data: str, config: EncryptionConfig) -> tuple[str, str]:
-        """
-        Encrypts data using the specified config.
-        Returns a tuple of (ciphertext_base64, iv_hex).
-        Note: The Bark iOS app uses base64 for ciphertext, and hex for IV in some docs,
-        Wait, standard Bark docs use `ciphertext` (often hex or base64) and `iv` (hex string usually).
-        Actually, let's stick to the iOS app's expected format. Bark iOS expects
-        the ciphertext to be base64-encoded or hex encoded. Usually base64.
-        Wait, in the original iOS client, they base64 encode the ciphertext, and the IV can be any string.
-        We'll use hex for IV since it's exactly 16 bytes. Wait, let's use a 16-byte random hex string (32 hex chars)
-        or 16 bytes encoded as hex string (so 32 chars).
-        Let's look at the standard. The IV needs to be 16 characters string or hex?
-        Actually, iOS Swift Crypto usually takes a 16-byte IV.
-        We will generate 16 random bytes and pass its hex representation, or base64.
-        Let's pass 16-byte IV as hex string (32 chars) or standard string. The safest is 16 alphanumeric chars.
-        Wait, iOS Bark expects the iv parameter to be a string.
-        Let's generate a 16-character alphanumeric IV.
+    def encrypt(data: str, config: EncryptionConfig) -> Tuple[str, str]:
+        """Encrypt a payload string for the Bark app.
+
+        Returns ``(ciphertext_base64, iv_string)``. When no static IV is configured a
+        random one is generated (see ``_generate_iv``). For GCM the authentication tag
+        is appended to the ciphertext before base64-encoding, which is the layout the
+        Bark iOS app expects when decrypting.
         """
         try:
-            if config.iv:
-                iv = config.iv
-            else:
-                # Generate correct length IV based on algorithm
-                if config.algorithm == CryptoAlgorithm.AES_256_GCM:
-                    # GCM standard IV length is 12 bytes. Bark iOS app expects 12 characters.
-                    iv = os.urandom(6).hex().encode("utf-8")
-                else:
-                    # CBC requires 16-byte IV.
-                    iv = os.urandom(8).hex().encode("utf-8")
+            iv = config.iv if config.iv else _generate_iv(config.algorithm)
+            data_bytes = data.encode("utf-8")
+            backend = default_backend()
 
             if config.algorithm == CryptoAlgorithm.AES_256_GCM:
-                cipher = Cipher(
-                    algorithms.AES(config.key), modes.GCM(iv), backend=default_backend()
-                )
-                encryptor = cipher.encryptor()
-                ciphertext = encryptor.update(data.encode("utf-8")) + encryptor.finalize()
-                # Bark iOS App for GCM: it expects the tag to be appended to the ciphertext.
-                ciphertext += encryptor.tag
+                gcm = Cipher(algorithms.AES(config.key), modes.GCM(iv), backend=backend).encryptor()
+                ciphertext = gcm.update(data_bytes) + gcm.finalize() + gcm.tag
             else:
-                cipher = Cipher(
-                    algorithms.AES(config.key), modes.CBC(iv), backend=default_backend()
-                )
-                encryptor = cipher.encryptor()
+                cbc = Cipher(algorithms.AES(config.key), modes.CBC(iv), backend=backend).encryptor()
                 padder = padding.PKCS7(128).padder()
-                padded_data = padder.update(data.encode("utf-8")) + padder.finalize()
-                ciphertext = encryptor.update(padded_data) + encryptor.finalize()
+                padded_data = padder.update(data_bytes) + padder.finalize()
+                ciphertext = cbc.update(padded_data) + cbc.finalize()
 
             return base64.b64encode(ciphertext).decode("utf-8"), iv.decode("utf-8")
 

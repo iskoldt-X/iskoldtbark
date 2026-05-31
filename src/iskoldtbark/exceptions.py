@@ -20,3 +20,13 @@ class BarkValidationError(BarkError):
     """Raised when the payload parameters are invalid."""
 
     pass
+
+
+class BarkConfigError(BarkError):
+    """Raised when the multi-user configuration is missing or invalid.
+
+    Covers unknown users/groups, a missing default user, failed migration,
+    and invalid encryption settings.
+    """
+
+    pass
