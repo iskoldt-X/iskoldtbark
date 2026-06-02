@@ -30,3 +30,13 @@ class BarkConfigError(BarkError):
     """
 
     pass
+
+
+class BarkSecurityWarning(UserWarning):
+    """Warns about a configuration that is accepted but cryptographically unsafe.
+
+    Emitted for footguns we keep accepting for backward compatibility, e.g. a
+    static IV with AES-256-GCM (which reuses the GCM nonce across messages).
+    """
+
+    pass

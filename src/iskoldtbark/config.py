@@ -65,7 +65,9 @@ class UserConfig:
         # Imported lazily to avoid a config <-> client import cycle.
         from .client import BarkClient
 
-        return BarkClient(self.device_key, self.server_url, encryption=self.encryption, session=session)
+        return BarkClient(
+            self.device_key, self.server_url, encryption=self.encryption, session=session
+        )
 
     def to_dict(self) -> Dict[str, Any]:
         data: Dict[str, Any] = {
@@ -179,18 +181,34 @@ class MultiUserConfig:
 class ConfigManager:
     GLOBAL_CONFIG_DIR = Path.home() / ".iskoldtbark"
     GLOBAL_CONFIG_FILE = GLOBAL_CONFIG_DIR / "config.json"
-    LOCAL_CONFIG_FILE = Path.cwd() / ".iskoldtbark.json"
+    # Resolved at read time (see _local_config_file) so the path tracks the current
+    # working directory instead of freezing whatever cwd was active at import time.
+    # Tests override this attribute directly; a non-None value takes precedence.
+    LOCAL_CONFIG_FILE: Optional[Path] = None
 
     # --- low-level helpers ----------------------------------------------
     @classmethod
+    def _local_config_file(cls) -> Path:
+        if cls.LOCAL_CONFIG_FILE is not None:
+            return Path(cls.LOCAL_CONFIG_FILE)
+        return Path.cwd() / ".iskoldtbark.json"
+
+    @classmethod
     def _read_json(cls, path: Path) -> Dict[str, Any]:
-        if path.exists():
-            try:
-                with open(path, "r") as f:
-                    return json.load(f)
-            except Exception:
-                return {}
-        return {}
+        if not path.exists():
+            return {}
+        try:
+            with open(path, "r") as f:
+                return json.load(f)
+        except json.JSONDecodeError as exc:
+            # Never silently treat a corrupt file as "no config": a later save_*()
+            # would atomically overwrite it and permanently destroy the real data.
+            raise BarkConfigError(
+                f"Config file at {path} is corrupted and could not be parsed ({exc}). "
+                "Fix or remove the file before continuing."
+            )
+        except OSError as exc:
+            raise BarkConfigError(f"Could not read config file at {path}: {exc}")
 
     @staticmethod
     def _is_multi(raw: Dict[str, Any]) -> bool:
@@ -341,7 +359,7 @@ class ConfigManager:
         else:
             config = cls._migrate_flat(global_raw)
 
-        local_raw = cls._read_json(cls.LOCAL_CONFIG_FILE)
+        local_raw = cls._read_json(cls._local_config_file())
         if cls._is_multi(local_raw):
             local_config = cls._parse_multi(local_raw)
             config.users.update(local_config.users)
@@ -429,6 +447,10 @@ class ConfigManager:
     ):
         """Save a legacy single-user configuration (retained for compatibility)."""
         cls.GLOBAL_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+        try:
+            os.chmod(cls.GLOBAL_CONFIG_DIR, 0o700)
+        except OSError:
+            pass
 
         data = {
             "device_key": device_key,
@@ -438,5 +460,13 @@ class ConfigManager:
         if iv:
             data["encryption_iv"] = iv
 
-        with open(cls.GLOBAL_CONFIG_FILE, "w") as f:
+        # Create with 0600 from the start (like save_multi) so the plaintext key is
+        # never briefly world-readable at the process umask; enforce it for an
+        # existing file too, since O_CREAT only sets the mode on creation.
+        fd = os.open(cls.GLOBAL_CONFIG_FILE, os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w") as f:
             json.dump(data, f, indent=4)
+        try:
+            os.chmod(cls.GLOBAL_CONFIG_FILE, 0o600)
+        except OSError:
+            pass

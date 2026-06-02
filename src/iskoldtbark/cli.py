@@ -1,5 +1,4 @@
 import argparse
-import random
 import secrets
 import string
 import sys
@@ -16,10 +15,21 @@ ALGO_KEY_LENGTHS = {
     "AES_256_GCM": 32,
 }
 
+# Alphanumeric alphabet for generated keys. Each character is one ASCII byte, so an
+# N-character key is exactly N bytes (the size AES requires and the value typed into
+# the Bark app), while drawing uniformly from 62 symbols gives ~5.95 bits/char.
+_KEY_ALPHABET = string.ascii_letters + string.digits
+
 
 def generate_random_string(length: int) -> str:
-    """Generate a cryptographically secure random string with full entropy."""
-    return secrets.token_hex((length + 1) // 2)[:length]
+    """Generate a cryptographically secure key of exactly ``length`` bytes.
+
+    Each character is drawn uniformly from a 62-symbol alphanumeric alphabet with a
+    CSPRNG, so a 32-char AES-256 key carries ~190 bits of entropy (vs only 128 with
+    the previous hex encoding, where each character held just 4 bits). Characters are
+    ASCII, so the UTF-8 byte length equals ``length`` and the key stays typeable.
+    """
+    return "".join(secrets.choice(_KEY_ALPHABET) for _ in range(length))
 
 
 def _mask(secret: str, keep: int = 4) -> str:
@@ -242,19 +252,43 @@ def config_show_command(args):
 
 
 def _build_push_kwargs(args) -> dict:
-    kwargs = {}
-    if args.title:
-        kwargs["title"] = args.title
-    if args.level:
-        kwargs["level"] = args.level
-    if args.badge is not None:
-        kwargs["badge"] = args.badge
-    if args.url:
-        kwargs["url"] = args.url
-    # --group is the unchanged iOS notification grouping field (BarkPayload.group),
-    # distinct from --user-group, which selects the recipients to broadcast to.
-    if args.group:
-        kwargs["group"] = args.group
+    kwargs: dict = {}
+    # Free-form string / choice fields forwarded when provided. --group is the
+    # unchanged iOS notification grouping field (BarkPayload.group), distinct from
+    # --user-group, which selects the recipients to broadcast to.
+    for attr in (
+        "title",
+        "subtitle",
+        "markdown",
+        "sound",
+        "icon",
+        "image",
+        "copy",
+        "url",
+        "group",
+        "level",
+        "action",
+        "id",
+    ):
+        value = getattr(args, attr, None)
+        if value:
+            kwargs[attr] = value
+    # Integer fields: guard on None so an explicit 0 is still forwarded.
+    for attr in ("badge", "ttl", "volume"):
+        value = getattr(args, attr, None)
+        if value is not None:
+            kwargs[attr] = value
+    # Flag fields the API expects as the literal string "1"; the CLI dest sometimes
+    # differs from the API field name (e.g. --auto-copy -> autoCopy).
+    flag_map = {
+        "call": "call",
+        "auto_copy": "autoCopy",
+        "is_archive": "isArchive",
+        "delete": "delete",
+    }
+    for attr, api_name in flag_map.items():
+        if getattr(args, attr, None):
+            kwargs[api_name] = "1"
     return kwargs
 
 
@@ -332,9 +366,45 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_send.add_argument("--group", help="iOS notification grouping (BarkPayload.group)")
     p_send.add_argument("--title")
+    p_send.add_argument("--subtitle", help="Notification subtitle")
+    p_send.add_argument("--markdown", help="Markdown body (overrides the rendered body)")
     p_send.add_argument("--level", choices=["active", "timeSensitive", "passive", "critical"])
+    p_send.add_argument("--volume", type=int, help="Volume 0-10 for critical alerts")
     p_send.add_argument("--badge", type=int, help="App badge number")
+    p_send.add_argument("--sound", help="Notification sound name (e.g. minuet.caf)")
+    p_send.add_argument("--icon", help="Custom icon URL")
+    p_send.add_argument("--image", help="Image URL to display in the notification")
     p_send.add_argument("--url", help="URL to open on tap")
+    p_send.add_argument("--copy", help="Text to copy via the copy action")
+    p_send.add_argument(
+        "--auto-copy",
+        dest="auto_copy",
+        action="store_const",
+        const="1",
+        help="Automatically copy the notification content",
+    )
+    p_send.add_argument(
+        "--call",
+        action="store_const",
+        const="1",
+        help="Repeat the notification sound for 30 seconds",
+    )
+    p_send.add_argument(
+        "--is-archive",
+        dest="is_archive",
+        action="store_const",
+        const="1",
+        help="Archive the notification on the device",
+    )
+    p_send.add_argument("--ttl", type=int, help="Time-to-live for an archived message")
+    p_send.add_argument("--id", help="Stable notification id (for update/delete)")
+    p_send.add_argument(
+        "--delete",
+        action="store_const",
+        const="1",
+        help="Delete the notification identified by --id",
+    )
+    p_send.add_argument("--action", help="Tap action (e.g. 'none' to do nothing)")
     p_send.add_argument("--device-key", help="Override device key for the single target")
     p_send.set_defaults(func=send_command)
 

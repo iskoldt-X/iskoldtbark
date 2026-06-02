@@ -5,8 +5,8 @@ A secure, fully compliant Python client for the [Bark](https://github.com/Finb/B
 ## Features
 
 - **Full API V2 Compliance**: Uses the official `POST /push` REST API with structured JSON payloads.
-- **Maximum Security**: Supports E2E encryption using AES-256-GCM and AES-256-CBC.
-- **Dynamic IV Generation**: Generates a secure, random Initialization Vector (IV) for every request to prevent replay attacks and ensure cryptographic best practices.
+- **Strong Encryption**: Optional E2E encryption with AES-256-GCM or AES-CBC (128/192/256); the server stores only ciphertext and your Bark app decrypts on-device.
+- **Per-message IV/nonce**: A fresh, CSPRNG-generated IV for every message (so a GCM nonce is never reused), plus high-entropy key generation (a 32-char AES-256 key ≈ 190 bits).
 - **Strict Validation**: Validates all payload parameters before sending.
 - **Multi-User & Groups**: Manage many named recipient devices, each with its own
   per-user encryption key, organize them into recipient groups, and broadcast to a
@@ -128,9 +128,28 @@ iskoldtbark set-default laptop   # change the default recipient
 iskoldtbark config               # show the resolved configuration
 ```
 
-Group broadcasts encrypt and send to each recipient independently and **continue on
-individual failures**, printing a per-recipient summary (`N succeeded, M failed`). The
-command exits non-zero only when *every* recipient fails.
+Group broadcasts encrypt and send to each recipient independently and **concurrently**,
+**continuing on individual failures** and printing a per-recipient summary
+(`N succeeded, M failed`). The command exits non-zero only when *every* recipient fails.
+
+### Notification options for `send`
+
+`send` exposes the full Bark payload as flags (mirroring `BarkClient.push`):
+
+```bash
+iskoldtbark send "Deploy finished" \
+  --title "CI" --subtitle "main" \
+  --markdown "**done** in 4m" \
+  --level timeSensitive --badge 3 \
+  --sound minuet.caf --url "https://github.com/run/123" \
+  --copy "deploy-42" --auto-copy \
+  --group Deploys --id deploy-42      # reuse --id later with --delete to remove it
+```
+
+Available flags: `--title`, `--subtitle`, `--markdown`, `--level`, `--volume`, `--badge`,
+`--sound`, `--icon`, `--image`, `--url`, `--copy`, `--auto-copy`, `--call`, `--is-archive`,
+`--ttl`, `--id`, `--delete`, `--action` — plus `--group` (iOS UI grouping) and
+`--device-key` (override the resolved target's key).
 
 ### `--user-group` vs `--group`
 
@@ -151,4 +170,16 @@ Configuration lives at `~/.iskoldtbark/config.json`. An existing single-user con
 **auto-migrated** to the new multi-user format on first use (wrapped as one `default`
 user, with no data loss); run `iskoldtbark migrate` to rewrite the file explicitly. The
 `BARK_DEVICE_KEY` / `BARK_SERVER_URL` / `BARK_ENCRYPTION_*` environment variables still
-override the **default** user.
+override the **default** user. A config file that exists but cannot be parsed is reported
+as an error rather than silently treated as empty, so a corrupt file is never overwritten.
+
+### Security notes
+
+- Encryption keys are stored **in cleartext** in `~/.iskoldtbark/config.json` (created
+  `0600`, owner-only). Treat that file as a secret: don't commit it, sync it to cloud
+  storage, or include it in backups that leave your machine.
+- For AES-256-GCM, leave the IV unset so a fresh nonce is generated per message. A
+  **static IV with GCM reuses the nonce and breaks the encryption**; the client emits a
+  `BarkSecurityWarning` if you configure one. Static IVs are only appropriate for CBC.
+- Use an `https://` server URL. Over plain `http://` the device key (used for routing and
+  never encrypted) and traffic metadata travel in cleartext; the client warns in that case.

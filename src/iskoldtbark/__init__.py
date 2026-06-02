@@ -13,6 +13,7 @@ from .exceptions import (
     BarkConfigError,
     BarkCryptoError,
     BarkError,
+    BarkSecurityWarning,
     BarkValidationError,
 )
 from .models import BarkPayload
@@ -28,6 +29,7 @@ __all__ = [
     "BarkCryptoError",
     "BarkValidationError",
     "BarkConfigError",
+    "BarkSecurityWarning",
     "ConfigManager",
     "BarkConfig",
     "UserConfig",

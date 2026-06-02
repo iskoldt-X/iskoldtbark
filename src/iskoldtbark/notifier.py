@@ -2,19 +2,8 @@ import concurrent.futures
 from dataclasses import dataclass, field
 from typing import Any, Dict
 
-import requests
-
 from .config import MultiUserConfig
-from .exceptions import BarkAPIError, BarkConfigError, BarkCryptoError, BarkValidationError
-
-# Errors that should not abort a group broadcast; the failure is recorded and
-# the loop moves on to the next recipient.
-_SEND_ERRORS = (
-    BarkAPIError,
-    BarkCryptoError,
-    BarkValidationError,
-    requests.exceptions.RequestException,
-)
+from .exceptions import BarkConfigError
 
 
 @dataclass
@@ -70,29 +59,31 @@ class UserNotifier:
         results: Dict[str, Dict[str, Any]] = {}
         success_count = 0
 
-        def _send_to_member(nickname: str, session: requests.Session) -> tuple:
+        def _send_to_member(nickname: str) -> tuple:
+            # Each recipient gets its own client with its own requests.Session: a
+            # single Session is not guaranteed thread-safe across the pool below.
             try:
                 user = self.config.get_user(nickname)
-            except BarkConfigError as exc:
+                client = user.to_client()
+            except Exception as exc:
                 return nickname, {"ok": False, "response": None, "error": str(exc)}
-
-            client = user.to_client(session=session)
             try:
                 response = client.push(body=body, **kwargs)
                 return nickname, {"ok": True, "response": response, "error": None}
-            except _SEND_ERRORS as exc:
+            except Exception as exc:
+                # Record any per-recipient failure and keep going, so one bad
+                # recipient never aborts delivery to the rest of the group.
                 return nickname, {"ok": False, "response": None, "error": str(exc)}
             finally:
                 client.close()
 
-        with requests.Session() as session:
-            with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
-                futures = [executor.submit(_send_to_member, nick, session) for nick in group.members]
-                for future in concurrent.futures.as_completed(futures):
-                    nickname, outcome = future.result()
-                    results[nickname] = outcome
-                    if outcome["ok"]:
-                        success_count += 1
+        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+            futures = [executor.submit(_send_to_member, nick) for nick in group.members]
+            for future in concurrent.futures.as_completed(futures):
+                nickname, outcome = future.result()
+                results[nickname] = outcome
+                if outcome["ok"]:
+                    success_count += 1
 
         return BarkSendResult(
             group_name=group_name,

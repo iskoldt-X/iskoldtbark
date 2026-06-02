@@ -48,6 +48,14 @@ class BarkPayload:
             if not isinstance(self.volume, int) or not (0 <= self.volume <= 10):
                 raise BarkValidationError("Volume must be an integer between 0 and 10.")
 
+        if self.badge is not None:
+            if not isinstance(self.badge, int) or self.badge < 0:
+                raise BarkValidationError("badge must be a non-negative integer.")
+
+        if self.ttl is not None:
+            if not isinstance(self.ttl, int) or self.ttl < 0:
+                raise BarkValidationError("ttl must be a non-negative integer.")
+
         if self.call and self.call != "1":
             raise BarkValidationError("call must be '1' if provided.")
 

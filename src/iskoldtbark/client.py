@@ -1,11 +1,12 @@
 import json
+import warnings
 from typing import Any, Dict, List, Optional
 
 import requests
 
 from .config import ConfigManager
 from .crypto import CryptoProvider, EncryptionConfig
-from .exceptions import BarkAPIError
+from .exceptions import BarkAPIError, BarkSecurityWarning
 from .models import BarkPayload
 
 
@@ -30,6 +31,15 @@ class BarkClient:
         """
         self.device_key = device_key
         self.server_url = server_url.rstrip("/")
+        if not self.server_url.lower().startswith("https://"):
+            # The device key is used for routing and is sent unencrypted; over plain
+            # HTTP it (and all traffic metadata) is exposed on the wire.
+            warnings.warn(
+                f"server_url {self.server_url!r} is not HTTPS; the device key and "
+                "traffic metadata are sent in cleartext.",
+                BarkSecurityWarning,
+                stacklevel=2,
+            )
         self.encryption_config: Optional[EncryptionConfig] = encryption
         self.session = session or requests.Session()
         self._owns_session = session is None
@@ -124,26 +134,41 @@ class BarkClient:
 
             json_str = json.dumps(encrypt_payload, ensure_ascii=False)
             ciphertext, iv = CryptoProvider.encrypt(json_str, self.encryption_config)
-            request_data = {"device_key": self.device_key, "ciphertext": ciphertext, "iv": iv}
+            request_data: Dict[str, Any] = {"ciphertext": ciphertext, "iv": iv}
+            # Route on the multicast list when one was supplied, otherwise the single
+            # device key. (Previously device_keys was silently dropped on this path.)
+            if device_keys:
+                request_data["device_keys"] = device_keys
+            else:
+                request_data["device_key"] = self.device_key
         else:
             request_data = payload.to_dict()
+            # For an unencrypted multicast, device_keys is the routing field; drop the
+            # redundant single device_key so the server gets one unambiguous target.
+            if device_keys:
+                request_data.pop("device_key", None)
 
         try:
             response = self.session.post(f"{self.server_url}/push", json=request_data, timeout=30)
-
-            try:
-                data = response.json()
-            except ValueError:
-                data = {}
-
-            if "code" in data and data["code"] != 200:
-                raise BarkAPIError(f"Bark API Error: {data.get('message', 'Unknown error')}")
-
-            response.raise_for_status()
-            return data
-
         except requests.exceptions.RequestException as e:
             raise BarkAPIError(f"Request failed: {e}")
+
+        try:
+            data = response.json()
+        except ValueError:
+            data = {}
+
+        # Bark signals application-level errors with a non-200 "code" in a JSON body.
+        if isinstance(data, dict) and "code" in data and data["code"] != 200:
+            raise BarkAPIError(f"Bark API Error: {data.get('message', 'Unknown error')}")
+
+        # An HTTP error with no usable JSON "code": surface the status and body text
+        # rather than returning an empty dict as though the request had succeeded.
+        if not response.ok:
+            detail = data if data else (response.text or "").strip()
+            raise BarkAPIError(f"Bark API request failed (HTTP {response.status_code}): {detail}")
+
+        return data if isinstance(data, dict) else {}
 
     def _get(self, path: str) -> requests.Response:
         """Issue a GET to a server utility endpoint, raising BarkAPIError on failure."""

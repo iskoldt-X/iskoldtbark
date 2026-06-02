@@ -4,24 +4,36 @@ build-backend = "hatchling.build"
 
 [project]
 name = "iskoldtbark"
-version = "0.1.1"
+version = "0.1.2"
 description = "A secure, official-compliant Python client for the Bark push notification service."
 readme = "README.md"
 requires-python = ">=3.8"
 license = { text = "MIT" }
 authors = [
-    { name = "Developer", email = "developer@example.com" }
+    { name = "iskold", email = "swoop-eel-popper@duck.com" }
 ]
+keywords = ["bark", "push", "notification", "ios", "encryption", "aes"]
 classifiers = [
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Topic :: Communications",
+    "Topic :: Security :: Cryptography",
 ]
 dependencies = [
     "requests>=2.25.0",
     "cryptography>=41.0.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/iskoldt-X/iskoldtbark"
+Repository = "https://github.com/iskoldt-X/iskoldtbark"
+Issues = "https://github.com/iskoldt-X/iskoldtbark/issues"
 
 [project.scripts]
 iskoldtbark = "iskoldtbark.cli:main"
