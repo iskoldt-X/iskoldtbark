@@ -1,12 +1,43 @@
+# ---- Python bytecode / caches ----
 __pycache__/
-*.pyc
-*.pyo
+*.py[cod]
+*$py.class
+
+# ---- Build / packaging / install artifacts ----
+build/
+dist/
+*.egg
+*.egg-info/
+.eggs/
+*.dist-info/
+wheels/
+pip-wheel-metadata/
+
+# ---- Virtual environments / editable installs ----
 venv/
 .venv/
-*.egg-info/
-dist/
-build/
+env/
+.env
+
+# ---- Tooling caches ----
 .pytest_cache/
 .mypy_cache/
-*.dist-info/RECORD
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+
+# ---- OS / editor cruft ----
+.DS_Store
+*.swp
+.idea/
+.vscode/
+
+# ---- Claude / AI assistant artifacts (local only) ----
+.claude/
 CLAUDE.md
+AUDIT.md
+ONBOARDING.md
+# vscode AI rules
+.github/instructions/codacy.instructions.md
