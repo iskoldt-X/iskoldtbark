@@ -45,3 +45,4 @@ ONBOARDING.md
 /tests/__pycache__
 /venv
 *.pyc
+FIXES.md
