@@ -45,6 +45,10 @@ iskoldtbark.send("Deploy finished", title="CI", level="timeSensitive")
 
 # Or supply a device key directly
 iskoldtbark.send("Hello", "YOUR_DEVICE_KEY", title="Hi")
+
+# Note: server_url and encryption kwargs to send() are only valid when you explicitly
+# provide a device_key. Otherwise, the configuration values for the default user
+# are used automatically.
 ```
 
 ### Encrypted Notification (AES-256-GCM)
@@ -147,7 +151,7 @@ iskoldtbark send "Deploy finished" \
 ```
 
 Available flags: `--title`, `--subtitle`, `--markdown`, `--level`, `--volume`, `--badge`,
-`--sound`, `--icon`, `--image`, `--url`, `--copy`, `--auto-copy`, `--call`, `--is-archive`,
+`--sound`, `--icon`, `--image`, `--url`, `--copy`, `--auto-copy`, `--call`, `--is-archive`, `--no-archive`,
 `--ttl`, `--id`, `--delete`, `--action` — plus `--group` (iOS UI grouping) and
 `--device-key` (override the resolved target's key).
 

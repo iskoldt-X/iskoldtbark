@@ -1,6 +1,7 @@
 import json
 import os
 import re
+import tempfile
 import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -20,9 +21,10 @@ def make_encryption_config(
     """Build an EncryptionConfig from stored string values.
 
     The key and IV are stored as UTF-8 strings in the config and encoded back to
-    bytes here, matching the format the single-user config has always used. The
-    only static-IV constraint is the one crypto.py has always enforced (exactly
-    16 bytes); GCM normally uses a per-message IV (leave the IV unset).
+    bytes here, matching the format the single-user config has always used.
+    Static IV length is validated per-algorithm: CBC requires exactly 16 bytes,
+    GCM accepts 12 or 16 bytes.  GCM normally uses a per-message IV (leave the
+    IV unset); a static IV with GCM emits a BarkSecurityWarning.
     """
     algo = CryptoAlgorithm(algorithm)
     key_bytes = key.encode("utf-8")
@@ -31,7 +33,7 @@ def make_encryption_config(
             return EncryptionConfig(key=key_bytes, algorithm=algo, iv=iv.encode("utf-8"))
         return EncryptionConfig(key=key_bytes, algorithm=algo)
     except BarkCryptoError as exc:
-        raise BarkConfigError(str(exc))
+        raise BarkConfigError(str(exc)) from exc
 
 
 def _encryption_to_dict(enc: EncryptionConfig) -> Dict[str, Any]:
@@ -199,28 +201,50 @@ class ConfigManager:
             return {}
         try:
             with open(path, "r") as f:
-                return json.load(f)
+                data = json.load(f)
         except json.JSONDecodeError as exc:
             # Never silently treat a corrupt file as "no config": a later save_*()
             # would atomically overwrite it and permanently destroy the real data.
             raise BarkConfigError(
                 f"Config file at {path} is corrupted and could not be parsed ({exc}). "
                 "Fix or remove the file before continuing."
-            )
+            ) from exc
         except OSError as exc:
-            raise BarkConfigError(f"Could not read config file at {path}: {exc}")
+            raise BarkConfigError(f"Could not read config file at {path}: {exc}") from exc
+        if not isinstance(data, dict):
+            raise BarkConfigError(
+                f"Config file at {path} is corrupted: expected a JSON object at the "
+                "top level. Fix or remove the file before continuing."
+            )
+        return data
 
     @staticmethod
     def _is_multi(raw: Dict[str, Any]) -> bool:
-        return bool(raw) and ("users" in raw or raw.get("version") == CONFIG_VERSION)
+        version = raw.get("version")
+        if "version" in raw:
+            if not isinstance(version, int):
+                raise BarkConfigError("Config 'version' must be an integer.")
+            if version > CONFIG_VERSION:
+                raise BarkConfigError(
+                    "Config was written by a newer version of iskoldtbark; please upgrade."
+                )
+        return bool(raw) and ("users" in raw or version == CONFIG_VERSION)
 
     @classmethod
     def _parse_multi(cls, raw: Dict[str, Any]) -> MultiUserConfig:
         config = MultiUserConfig(version=CONFIG_VERSION, default_user=raw.get("default_user"))
         for nick, u in (raw.get("users") or {}).items():
+            if not isinstance(u, dict):
+                raise BarkConfigError(f"User entry '{nick}' must be a dictionary.")
             if not NICKNAME_RE.match(nick):
                 raise BarkConfigError(f"Invalid nickname '{nick}' in config.")
+            if "device_key" not in u or not isinstance(u.get("device_key"), str):
+                raise BarkConfigError(
+                    f"User '{nick}' in config is missing 'device_key' or it is not a string."
+                )
             enc = u.get("encryption")
+            if enc is not None and not isinstance(enc, dict):
+                raise BarkConfigError(f"Encryption config for user '{nick}' must be a dictionary.")
             config.users[nick] = UserConfig(
                 nickname=nick,
                 device_key=u["device_key"],
@@ -228,9 +252,28 @@ class ConfigManager:
                 encryption=cls._build_encryption(enc) if enc else None,
             )
         for gname, g in (raw.get("groups") or {}).items():
+            if not isinstance(g, dict):
+                raise BarkConfigError(f"Recipient group entry '{gname}' must be a dictionary.")
+            members = g.get("members", [])
+            if not isinstance(members, list):
+                raise BarkConfigError(
+                    f"Recipient group '{gname}' has invalid 'members': expected a list."
+                )
+            # Deduplicate members (preserving order) in case of manual config edits.
+            seen = set()
+            deduped = []
+            for m in members:
+                if m not in seen:
+                    seen.add(m)
+                    deduped.append(m)
+            if len(deduped) != len(members):
+                warnings.warn(
+                    f"Recipient group '{gname}' has duplicate members; dropping duplicates.",
+                    stacklevel=2,
+                )
             config.groups[gname] = RecipientGroup(
                 name=gname,
-                members=list(g.get("members", [])),
+                members=deduped,
                 description=g.get("description", ""),
             )
         cls._prune_dangling(config)
@@ -270,6 +313,8 @@ class ConfigManager:
 
     @classmethod
     def _build_encryption(cls, enc: Dict[str, Any]) -> EncryptionConfig:
+        if "key" not in enc:
+            raise BarkConfigError("Encryption config is missing 'key'.")
         return make_encryption_config(
             enc["key"], enc.get("algorithm", CryptoAlgorithm.AES_256_GCM.value), enc.get("iv")
         )
@@ -376,6 +421,19 @@ class ConfigManager:
         return config
 
     @classmethod
+    def load_persistent(cls) -> MultiUserConfig:
+        """Load only the persisted global config (no local file or env overlays).
+
+        Use this for read-modify-write CLI commands (init, user add/remove,
+        group create/add-user/remove-user/delete, set-default, migrate) so that
+        transient env / local-file overrides are never written back to disk.
+        """
+        global_raw = cls._read_json(cls.GLOBAL_CONFIG_FILE)
+        if cls._is_multi(global_raw):
+            return cls._parse_multi(global_raw)
+        return cls._migrate_flat(global_raw)
+
+    @classmethod
     def load(cls) -> BarkConfig:
         """Resolve the default user into a single-recipient BarkConfig.
 
@@ -421,19 +479,28 @@ class ConfigManager:
         except OSError:
             pass
 
-        tmp_path = cls.GLOBAL_CONFIG_FILE.parent / (cls.GLOBAL_CONFIG_FILE.name + ".tmp")
+        tmp_fd = None
+        tmp_path = None
         try:
-            fd = os.open(tmp_path, os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o600)
-            with os.fdopen(fd, "w") as f:
+            tmp_fd, tmp_path_str = tempfile.mkstemp(
+                dir=str(cls.GLOBAL_CONFIG_DIR), prefix="config.json.", suffix=".tmp"
+            )
+            tmp_path = Path(tmp_path_str)
+            with os.fdopen(tmp_fd, "w") as f:
+                tmp_fd = None  # fdopen takes ownership of the fd
                 json.dump(config.to_dict(), f, indent=4)
+                f.flush()
+                os.fsync(f.fileno())
             os.replace(tmp_path, cls.GLOBAL_CONFIG_FILE)
         except Exception as exc:
-            if tmp_path.exists():
+            if tmp_fd is not None:
+                os.close(tmp_fd)
+            if tmp_path is not None and tmp_path.exists():
                 try:
                     tmp_path.unlink()
                 except OSError:
                     pass
-            raise BarkConfigError(f"Failed to save config: {exc}")
+            raise BarkConfigError(f"Failed to save config: {exc}") from exc
 
     @classmethod
     def is_legacy_on_disk(cls) -> bool:
@@ -460,13 +527,25 @@ class ConfigManager:
         if iv:
             data["encryption_iv"] = iv
 
-        # Create with 0600 from the start (like save_multi) so the plaintext key is
-        # never briefly world-readable at the process umask; enforce it for an
-        # existing file too, since O_CREAT only sets the mode on creation.
-        fd = os.open(cls.GLOBAL_CONFIG_FILE, os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o600)
-        with os.fdopen(fd, "w") as f:
-            json.dump(data, f, indent=4)
+        tmp_fd = None
+        tmp_path = None
         try:
-            os.chmod(cls.GLOBAL_CONFIG_FILE, 0o600)
-        except OSError:
-            pass
+            tmp_fd, tmp_path_str = tempfile.mkstemp(
+                dir=str(cls.GLOBAL_CONFIG_DIR), prefix="config.json.", suffix=".tmp"
+            )
+            tmp_path = Path(tmp_path_str)
+            with os.fdopen(tmp_fd, "w") as f:
+                tmp_fd = None  # fdopen takes ownership of the fd
+                json.dump(data, f, indent=4)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp_path, cls.GLOBAL_CONFIG_FILE)
+        except Exception as exc:
+            if tmp_fd is not None:
+                os.close(tmp_fd)
+            if tmp_path is not None and tmp_path.exists():
+                try:
+                    tmp_path.unlink()
+                except OSError:
+                    pass
+            raise BarkConfigError(f"Failed to save legacy config: {exc}") from exc

@@ -6,7 +6,7 @@ import requests
 
 from .config import ConfigManager
 from .crypto import CryptoProvider, EncryptionConfig
-from .exceptions import BarkAPIError, BarkSecurityWarning
+from .exceptions import BarkAPIError, BarkSecurityWarning, BarkValidationError
 from .models import BarkPayload
 
 
@@ -19,6 +19,7 @@ class BarkClient:
         server_url: str = "https://api.day.app",
         encryption: Optional[EncryptionConfig] = None,
         session: Optional[requests.Session] = None,
+        timeout: float = 30.0,
     ):
         """
         Initialize the Bark client.
@@ -28,6 +29,7 @@ class BarkClient:
             server_url: The Bark server URL. Defaults to the official server.
             encryption: Optional E2E encryption config; enables encryption in one step
                 (equivalent to calling set_encryption afterwards).
+            timeout: Request timeout in seconds (default 30).
         """
         self.device_key = device_key
         self.server_url = server_url.rstrip("/")
@@ -43,6 +45,7 @@ class BarkClient:
         self.encryption_config: Optional[EncryptionConfig] = encryption
         self.session = session or requests.Session()
         self._owns_session = session is None
+        self.timeout = timeout
 
     @classmethod
     def from_config(cls) -> "BarkClient":
@@ -126,6 +129,13 @@ class BarkClient:
         )
         payload.validate()
 
+        if self.encryption_config and (ciphertext is not None or iv is not None):
+            raise BarkValidationError(
+                "Cannot pass pre-encrypted ciphertext/iv to a client that has encryption "
+                "configured: the payload would be double-encrypted and unusable. Send "
+                "pre-encrypted payloads through a client without encryption configured."
+            )
+
         if self.encryption_config:
             # Encrypt the full payload JSON, excluding the routing-only device key(s).
             encrypt_payload = payload.to_dict()
@@ -149,9 +159,11 @@ class BarkClient:
                 request_data.pop("device_key", None)
 
         try:
-            response = self.session.post(f"{self.server_url}/push", json=request_data, timeout=30)
+            response = self.session.post(
+                f"{self.server_url}/push", json=request_data, timeout=self.timeout
+            )
         except requests.exceptions.RequestException as e:
-            raise BarkAPIError(f"Request failed: {e}")
+            raise BarkAPIError(f"Request failed: {e}") from e
 
         try:
             data = response.json()
@@ -173,11 +185,11 @@ class BarkClient:
     def _get(self, path: str) -> requests.Response:
         """Issue a GET to a server utility endpoint, raising BarkAPIError on failure."""
         try:
-            response = self.session.get(f"{self.server_url}{path}", timeout=30)
+            response = self.session.get(f"{self.server_url}{path}", timeout=self.timeout)
             response.raise_for_status()
             return response
         except requests.exceptions.RequestException as e:
-            raise BarkAPIError(f"Request failed: {e}")
+            raise BarkAPIError(f"Request failed: {e}") from e
 
     def ping(self) -> Dict[str, Any]:
         """Check server connectivity (GET /ping)."""
@@ -207,7 +219,7 @@ def send(
     body: str,
     device_key: Optional[str] = None,
     *,
-    server_url: str = "https://api.day.app",
+    server_url: Optional[str] = None,
     encryption: Optional[EncryptionConfig] = None,
     **kwargs: Any,
 ) -> Dict[str, Any]:
@@ -217,11 +229,22 @@ def send(
     ``encryption``). Without it, it loads the default user from config, where any
     configured encryption is applied automatically. Remaining keyword arguments are
     forwarded to BarkClient.push.
+
+    Raises BarkValidationError when ``server_url`` or ``encryption`` is supplied
+    without ``device_key``, since those parameters would be silently ignored
+    (the from_config path has its own values).
     """
     if device_key is None:
+        if server_url is not None or encryption is not None:
+            raise BarkValidationError(
+                "server_url and encryption are only effective when device_key is also "
+                "provided. Without device_key the default user from the configuration "
+                "file is used (with its own server_url and encryption). Either supply "
+                "device_key or remove server_url/encryption."
+            )
         client = BarkClient.from_config()
     else:
-        client = BarkClient(device_key, server_url, encryption=encryption)
+        client = BarkClient(device_key, server_url or "https://api.day.app", encryption=encryption)
     try:
         return client.push(body=body, **kwargs)
     finally:

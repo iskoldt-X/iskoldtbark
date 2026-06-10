@@ -11,7 +11,7 @@ from iskoldtbark import (
     UserConfig,
     make_encryption_config,
 )
-from iskoldtbark.exceptions import BarkValidationError
+from iskoldtbark.exceptions import BarkSecurityWarning, BarkValidationError
 
 
 def test_migration_preserves_all_fields(isolated_config):
@@ -74,16 +74,29 @@ def test_migration_with_static_cbc_iv_roundtrips(isolated_config):
 
 
 def test_wrong_length_static_iv_rejected():
-    # crypto.py requires a 16-byte static IV regardless of algorithm.
-    with pytest.raises(BarkConfigError):
-        make_encryption_config("k" * 32, "AES_256_GCM", "000000000000")  # 12 chars
+    # CBC requires exactly 16-byte static IV.
     with pytest.raises(BarkConfigError):
         make_encryption_config("k" * 16, "AES_128_CBC", "short")
+    # CBC rejects 12-byte IV.
+    with pytest.raises(BarkConfigError):
+        make_encryption_config("k" * 16, "AES_128_CBC", "000000000000")
+    # GCM rejects 5-byte IV.
+    with pytest.raises(BarkConfigError):
+        make_encryption_config("k" * 32, "AES_256_GCM", "short")
+
+
+def test_gcm_with_12char_static_iv_accepted():
+    # GCM now accepts 12-byte static IV (previously rejected).
+    with pytest.warns(BarkSecurityWarning):
+        cfg = make_encryption_config("k" * 32, "AES_256_GCM", "000000000000")
+    assert cfg.algorithm == CryptoAlgorithm.AES_256_GCM
+    assert cfg.iv == b"000000000000"
 
 
 def test_gcm_with_16char_static_iv_accepted():
     # A 16-byte static IV with GCM was always accepted; keep it non-breaking.
-    cfg = make_encryption_config("k" * 32, "AES_256_GCM", "0123456789abcdef")
+    with pytest.warns(BarkSecurityWarning):
+        cfg = make_encryption_config("k" * 32, "AES_256_GCM", "0123456789abcdef")
     assert cfg.algorithm == CryptoAlgorithm.AES_256_GCM
     assert cfg.iv == b"0123456789abcdef"
 
@@ -100,7 +113,8 @@ def test_gcm_static_iv_config_loads(isolated_config):
             "encryption_iv": "0123456789abcdef",
         },
     )
-    enc = cm.load_multi().get_user("default").encryption
+    with pytest.warns(BarkSecurityWarning):
+        enc = cm.load_multi().get_user("default").encryption
     assert enc.algorithm == CryptoAlgorithm.AES_256_GCM
     assert enc.iv == b"0123456789abcdef"
 

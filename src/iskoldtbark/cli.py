@@ -57,7 +57,7 @@ def _print_bark_setup(key: str, algorithm: str) -> None:
 def init_command(args):
     """Handles `iskoldtbark init` - sets up your primary recipient device."""
     print("🚀 Initializing iskoldtbark security configuration...\n")
-    config = ConfigManager.load_multi()
+    config = ConfigManager.load_persistent()
 
     nickname = args.nickname or input("Enter a nickname for this device (e.g., phone): ").strip()
     if not nickname:
@@ -94,7 +94,7 @@ def init_command(args):
 
 def user_add_command(args):
     """Handles `iskoldtbark user add`."""
-    config = ConfigManager.load_multi()
+    config = ConfigManager.load_persistent()
     nickname = args.nickname or input("Enter a nickname: ").strip()
     device_key = args.device_key or input("Enter the Bark device key: ").strip()
     if not nickname or not device_key:
@@ -149,7 +149,7 @@ def user_list_command(args):
 
 
 def user_remove_command(args):
-    config = ConfigManager.load_multi()
+    config = ConfigManager.load_persistent()
     try:
         config.remove_user(args.nickname)
         ConfigManager.save_multi(config)
@@ -160,7 +160,7 @@ def user_remove_command(args):
 
 
 def group_create_command(args):
-    config = ConfigManager.load_multi()
+    config = ConfigManager.load_persistent()
     try:
         config.create_group(args.name, description=args.description or "")
         ConfigManager.save_multi(config)
@@ -182,7 +182,7 @@ def group_list_command(args):
 
 
 def group_add_user_command(args):
-    config = ConfigManager.load_multi()
+    config = ConfigManager.load_persistent()
     try:
         config.add_user_to_group(args.nickname, args.group)
         ConfigManager.save_multi(config)
@@ -193,7 +193,7 @@ def group_add_user_command(args):
 
 
 def group_remove_user_command(args):
-    config = ConfigManager.load_multi()
+    config = ConfigManager.load_persistent()
     try:
         config.remove_user_from_group(args.nickname, args.group)
         ConfigManager.save_multi(config)
@@ -204,7 +204,7 @@ def group_remove_user_command(args):
 
 
 def group_delete_command(args):
-    config = ConfigManager.load_multi()
+    config = ConfigManager.load_persistent()
     try:
         config.delete_group(args.name)
         ConfigManager.save_multi(config)
@@ -215,7 +215,7 @@ def group_delete_command(args):
 
 
 def set_default_command(args):
-    config = ConfigManager.load_multi()
+    config = ConfigManager.load_persistent()
     try:
         config.set_default_user(args.nickname)
         ConfigManager.save_multi(config)
@@ -229,7 +229,7 @@ def migrate_command(args):
     if not ConfigManager.is_legacy_on_disk():
         print("Config is already in the multi-user (v1) format; nothing to migrate.")
         return
-    config = ConfigManager.load_multi()
+    config = ConfigManager.load_persistent()
     if not config.users:
         print("No configuration found to migrate.")
         return
@@ -289,6 +289,9 @@ def _build_push_kwargs(args) -> dict:
     for attr, api_name in flag_map.items():
         if getattr(args, attr, None):
             kwargs[api_name] = "1"
+    # --no-archive sets isArchive to "0" (explicitly disable archiving).
+    if getattr(args, "no_archive", None):
+        kwargs["isArchive"] = "0"
     return kwargs
 
 
@@ -300,7 +303,11 @@ def send_command(args):
         kwargs = _build_push_kwargs(args)
 
         # --device-key overrides the single resolved target (user or default);
-        # it is meaningless for a group broadcast and ignored there.
+        # it is meaningless for a group broadcast.
+        if args.device_key and args.user_group:
+            print("❌ Error: --device-key cannot be used with --user-group.")
+            sys.exit(1)
+
         if args.device_key and not args.user_group:
             target = args.user or config.default_user
             if target and target in config.users:
@@ -308,6 +315,9 @@ def send_command(args):
 
         if args.user_group:
             result = notifier.send_to_group(args.user_group, args.body, **kwargs)
+            if result.total == 0:
+                print(f"⚠️ Recipient group '{args.user_group}' has no members.")
+                sys.exit(1)
             print(f"📡 Sending to recipient group '{args.user_group}' ({result.total} users)...")
             for nickname, outcome in result.per_user_results.items():
                 if outcome["ok"]:
@@ -335,7 +345,9 @@ def _add_encryption_args(parser):
     parser.add_argument("--algo", choices=ALGO_CHOICES, default="AES_256_GCM")
     parser.add_argument("--encryption-key", help="Encryption key (generated if omitted)")
     parser.add_argument(
-        "--iv", help="Static IV, 16 bytes (recommended for CBC; GCM normally uses a per-message IV)"
+        "--iv",
+        help="Static IV (CBC: 16 bytes, GCM: 12 or 16 bytes). "
+        "Leave unset for a random per-message IV (recommended).",
     )
     parser.add_argument(
         "--no-encryption", action="store_true", help="Add the user without encryption"
@@ -389,12 +401,20 @@ def build_parser() -> argparse.ArgumentParser:
         const="1",
         help="Repeat the notification sound for 30 seconds",
     )
-    p_send.add_argument(
+    archive_group = p_send.add_mutually_exclusive_group()
+    archive_group.add_argument(
         "--is-archive",
         dest="is_archive",
         action="store_const",
         const="1",
         help="Archive the notification on the device",
+    )
+    archive_group.add_argument(
+        "--no-archive",
+        dest="no_archive",
+        action="store_const",
+        const="1",
+        help="Explicitly disable archiving the notification",
     )
     p_send.add_argument("--ttl", type=int, help="Time-to-live for an archived message")
     p_send.add_argument("--id", help="Stable notification id (for update/delete)")
