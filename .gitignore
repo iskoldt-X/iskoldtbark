@@ -41,3 +41,6 @@ AUDIT.md
 ONBOARDING.md
 # vscode AI rules
 .github/instructions/codacy.instructions.md
+/src/iskoldtbark/__pycache__
+/tests/__pycache__
+/venv
