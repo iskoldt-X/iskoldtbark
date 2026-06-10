@@ -44,3 +44,4 @@ ONBOARDING.md
 /src/iskoldtbark/__pycache__
 /tests/__pycache__
 /venv
+*.pyc
