@@ -62,8 +62,8 @@ class BarkPayload:
         if self.autoCopy and self.autoCopy != "1":
             raise BarkValidationError("autoCopy must be '1' if provided.")
 
-        if self.isArchive and self.isArchive != "1":
-            raise BarkValidationError("isArchive must be '1' if provided.")
+        if self.isArchive and self.isArchive not in ("0", "1"):
+            raise BarkValidationError("isArchive must be '0' or '1' if provided.")
 
         if self.delete and self.delete != "1":
             raise BarkValidationError("delete must be '1' if provided.")

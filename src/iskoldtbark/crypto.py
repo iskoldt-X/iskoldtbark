@@ -46,8 +46,17 @@ class EncryptionConfig:
                 f"{self.algorithm.value} requires a 32-byte key (got {len(self.key)} bytes)"
             )
 
-        if self.iv is not None and len(self.iv) != 16:
-            raise BarkCryptoError(f"Static IV must be exactly 16 bytes (got {len(self.iv)} bytes)")
+        if self.iv is not None:
+            if self.algorithm == CryptoAlgorithm.AES_256_GCM:
+                if len(self.iv) not in (12, 16):
+                    raise BarkCryptoError(
+                        f"Static IV for GCM must be 12 or 16 bytes (got {len(self.iv)} bytes)"
+                    )
+            else:
+                if len(self.iv) != 16:
+                    raise BarkCryptoError(
+                        f"Static IV for CBC must be exactly 16 bytes (got {len(self.iv)} bytes)"
+                    )
 
         # A static IV with GCM reuses the same nonce on every message, which is
         # catastrophic for GCM (it leaks plaintext XOR and lets an attacker forge
@@ -104,4 +113,4 @@ class CryptoProvider:
             return base64.b64encode(ciphertext).decode("utf-8"), iv.decode("utf-8")
 
         except Exception as e:
-            raise BarkCryptoError(f"Encryption failed: {e}")
+            raise BarkCryptoError(f"Encryption failed: {e}") from e
