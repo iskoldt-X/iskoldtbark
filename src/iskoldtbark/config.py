@@ -339,7 +339,7 @@ class ConfigManager:
         env -> local -> global cascade keeps working for the default recipient.
         """
         device_key = source.get("device_key")
-        nickname = config.default_user or os.environ.get("BARK_USER_NICKNAME", "default")
+        nickname = str(config.default_user or os.environ.get("BARK_USER_NICKNAME", "default"))
         user = config.users.get(nickname)
         if user is None:
             if not device_key:

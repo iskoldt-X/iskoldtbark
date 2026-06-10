@@ -34,4 +34,4 @@ jobs:
         run: isort --check src tests
 
       - name: Type check (mypy)
-        run: mypy src
+        run: mypy --install-types --non-interactive src
