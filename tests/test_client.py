@@ -99,9 +99,9 @@ def test_push_encrypted_id_and_delete_are_plaintext():
     client.push(body="secret message", id="collapse-1", delete="1")
 
     body = json.loads(responses.calls[0].request.body)
-    assert body["id"] == "collapse-1"   # plaintext -> server can set apns-collapse-id
+    assert body["id"] == "collapse-1"  # plaintext -> server can set apns-collapse-id
     assert body["delete"] == "1"
-    assert "ciphertext" in body          # content itself is still encrypted
+    assert "ciphertext" in body  # content itself is still encrypted
     assert "body" not in body
 
 
