@@ -151,6 +151,15 @@ class BarkClient:
                 request_data["device_keys"] = device_keys
             else:
                 request_data["device_key"] = self.device_key
+            # Server-side control fields must travel in plaintext. The Bark server sets
+            # the APNs apns-collapse-id from `id` (and acts on `delete`) BEFORE the app
+            # ever decrypts the payload; if they live only inside the ciphertext the
+            # server cannot see them, so same-`id` pushes stack instead of updating in
+            # place. These are non-sensitive routing keys, safe to send in the clear.
+            if id is not None:
+                request_data["id"] = id
+            if delete is not None:
+                request_data["delete"] = delete
         else:
             request_data = payload.to_dict()
             # For an unencrypted multicast, device_keys is the routing field; drop the

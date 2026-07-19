@@ -80,6 +80,32 @@ def test_push_encrypted():
 
 
 @responses.activate
+def test_push_encrypted_id_and_delete_are_plaintext():
+    # Regression: `id` (APNs collapse-id) and `delete` are server-side control fields.
+    # The Bark server acts on them BEFORE the app decrypts, so they must be sent in
+    # plaintext alongside the ciphertext — otherwise same-id pushes stack instead of
+    # updating a delivered notification in place.
+    responses.add(
+        responses.POST,
+        "https://api.day.app/push",
+        json={"code": 200, "message": "success", "timestamp": 123456},
+        status=200,
+    )
+
+    client = BarkClient("dummy_key")
+    config = EncryptionConfig(key=os.urandom(32), algorithm=CryptoAlgorithm.AES_256_GCM)
+    client.set_encryption(config)
+
+    client.push(body="secret message", id="collapse-1", delete="1")
+
+    body = json.loads(responses.calls[0].request.body)
+    assert body["id"] == "collapse-1"   # plaintext -> server can set apns-collapse-id
+    assert body["delete"] == "1"
+    assert "ciphertext" in body          # content itself is still encrypted
+    assert "body" not in body
+
+
+@responses.activate
 def test_push_api_error():
     responses.add(
         responses.POST,
