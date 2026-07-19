@@ -1,7 +1,7 @@
 # iskoldtbark
 
-[![PyPI](https://img.shields.io/pypi/v/iskoldtbark)](https://pypi.org/project/iskoldtbark/)
-[![Python](https://img.shields.io/pypi/pyversions/iskoldtbark)](https://pypi.org/project/iskoldtbark/)
+[![PyPI](https://img.shields.io/badge/PyPI-v0.2.2-blue)](https://pypi.org/project/iskoldtbark/)
+[![Python](https://img.shields.io/badge/python-3.8%2B-blue)](https://pypi.org/project/iskoldtbark/)
 [![Tests](https://github.com/iskoldt-X/iskoldtbark/actions/workflows/test.yml/badge.svg)](https://github.com/iskoldt-X/iskoldtbark/actions/workflows/test.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
